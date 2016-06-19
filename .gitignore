@@ -87,3 +87,5 @@ ENV/
 
 # Rope project settings
 .ropeproject
+bottle.py
+WebClient.bundle
