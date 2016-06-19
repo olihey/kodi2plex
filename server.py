@@ -12,6 +12,8 @@ kodi_jsonrpc_url = "http://192.168.2.2:8080/jsonrpc"
 kodi_jsonrpc_headers = {'content-type': 'application/json'}
 kodi_jsonrpc_counter = 0
 
+settings = {"title": "kodi2plex"}
+
 
 def kodi_request(method, params):
     global kodi_jsonrpc_counter
@@ -704,12 +706,12 @@ def gdm_broadcast():
     # UPDATE * HTTP/1.0
     Response_message = """HTTP/1.1 200 OK\r
 Content-Type: plex/media-server\r
-Name: kodi2plex\r
+Name: %s\r
 Port: 32400\r
 Resource-Identifier: 23f2d6867befb9c26f7b5f366d4dd84e9b2294c9\r
 Updated-At: 1466340239\r
 Version: 0.9.16.6.1993-5089475\r
-Parameters: playerAdd=192.168.2.102\r\n"""
+Parameters: playerAdd=192.168.2.102\r\n""" % settings["title"]
 
     # Create socket
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
