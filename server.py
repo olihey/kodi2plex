@@ -738,8 +738,8 @@ Parameters: playerAdd=192.168.2.102\r\n"""
         time.sleep(5)
 
 
-gdm_thread = threading.Thread(target=gdm_broadcast)
-gdm_thread.start()
+# gdm_thread = threading.Thread(target=gdm_broadcast)
+# gdm_thread.start()
 
 bottle.debug(True)
 bottle.run(host='0.0.0.0', port=32400, reloader=True)
