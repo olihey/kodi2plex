@@ -3,6 +3,7 @@ import sys
 import json
 import urllib.request
 import threading
+import xml.etree.ElementTree
 
 import bottle
 
@@ -33,20 +34,34 @@ def kodi_request(method, params):
 
 @bottle.route('/')
 def root():
-    return """<MediaContainer size="12" allowMediaDeletion="1" friendlyName="kodi2plex" machineIdentifier="sdfsdf" myPlex="1" myPlexMappingState="unknown" myPlexSigninState="none" myPlexSubscription="0" myPlexUsername="" platform="Linux" platformVersion=" (#3 SMP PREEMPT Wed Nov 19 08:28:34 CET 2014)" requestParametersInCookie="1" sync="1" transcoderActiveVideoSessions="0" transcoderAudio="1" transcoderVideo="1" transcoderVideoBitrates="64,96,208,320,720,1500,2000,3000,4000,8000,10000,12000,20000" transcoderVideoQualities="0,1,2,3,4,5,6,7,8,9,10,11,12" transcoderVideoRemuxOnly="1" transcoderVideoResolutions="128,128,160,240,320,480,768,720,720,1080,1080,1080,1080" updatedAt="1423682517" version="0.9.12.0">
-	<Directory count="1" key="butler" title="butler" />
-	<Directory count="1" key="channels" title="channels" />
-	<Directory count="1" key="clients" title="clients" />
-	<Directory count="1" key="library" title="library" />
-	<Directory count="1" key="playQueues" title="playQueues" />
-	<Directory count="1" key="player" title="player" />
-	<Directory count="1" key="playlists" title="playlists" />
-	<Directory count="1" key="search" title="search" />
-	<Directory count="1" key="servers" title="servers" />
-	<Directory count="1" key="system" title="system" />
-	<Directory count="1" key="transcode" title="transcode" />
-	<Directory count="1" key="video" title="video" />
-</MediaContainer>"""
+    root = xml.etree.ElementTree.Element("MediaContainer", attrib={})
+    root.attrib["allowMediaDeletion"] = "1"
+    root.attrib["friendlyName"] = settings["title"]
+    root.attrib["machineIdentifier"] = "XXXXXXXX"
+    root.attrib["myPlex"] = "0"
+    root.attrib["myPlexMappingState"] = "unknown"
+    root.attrib["myPlexSigninState"] = "none"
+    root.attrib["myPlexSubscription"] = "0"
+    root.attrib["myPlexUsername"] = ""
+    root.attrib["platform"] = "Linux"
+    root.attrib["platformVersion"] = " (#3 SMP PREEMPT Wed Nov 19 08:28:34 CET 2014)"
+    root.attrib["requestParametersInCookie"] = "0"
+    root.attrib["sync"] = "1"
+    root.attrib["transcoderActiveVideoSessions"] = "0"
+    root.attrib["transcoderAudio"] = "1"
+    root.attrib["transcoderVideo"] = "1"
+    root.attrib["transcoderVideoBitrates"] = "64,96,208,320,720,1500,2000,3000,4000,8000,10000,12000,20000"
+    root.attrib["transcoderVideoQualities"] = "0,1,2,3,4,5,6,7,8,9,10,11,12"
+    root.attrib["transcoderVideoRemuxOnly"] = "1"
+    root.attrib["transcoderVideoResolutions"] = "128,128,160,240,320,480,768,720,720,1080,1080,1080,1080"
+    root.attrib["updatedAt"] = "1423682517"
+    root.attrib["version"] = "0.9.12.0"
+
+    for option in ["library"]:
+        root.append(xml.etree.ElementTree.Element("Directory", attrib={"count": "1", "key": option, "title": option}))
+
+    return_string = xml.etree.ElementTree.tostring(root)
+    return return_string
 
 
 @bottle.route('/library/sections')
