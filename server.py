@@ -46,12 +46,12 @@ class Kodi2PlexRequestHandler(http.server.BaseHTTPRequestHandler):
         path = self.path
 
         # first check for service static WebClient files
-        if web_path and path.startswith("/web/"):
+        if self.server.web_path and path.startswith("/web/"):
             web_filename = path[5:]
             if not web_filename:
                 web_filename = "index.html"
 
-            web_filename = os.path.join(web_path, web_filename)
+            web_filename = os.path.join(self.server.web_path, web_filename)
             if not os.path.exists(web_filename):
                 self.send_error(404)
 
