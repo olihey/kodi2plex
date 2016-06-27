@@ -26,72 +26,10 @@ kodi_jsonrpc_counter = 0
 settings = {}
 
 
-def kodi_request(method, params):
-    """
-    Sends a JSON formatted message to the server
-    returns the result as dictionary (from json response)
-    """
-    global kodi_jsonrpc_counter
-
-    # create the request
-    payload = {
-        "method": method,
-        "params": params,
-        "jsonrpc": "2.0",
-        "id": kodi_jsonrpc_counter,
-    }
-
-    # increase the message counter
-    kodi_jsonrpc_counter += 1
-
-    # fire up the request
-    req = urllib.request.Request(settings["kodi_url"], data=json.dumps(payload).encode("utf8"), headers=kodi_jsonrpc_headers)
-    response = urllib.request.urlopen(req)
-    return json.loads(response.read().decode("utf8"))
-
-
-def gdm_broadcast(gdm_socket):
-    """
-    Function to send response for GDM requests from
-    Plex clients
-    """
-
-    # response as string
-    response_message = """HTTP/1.1 200 OK\r
-Content-Type: plex/media-server\r
-Name: %s\r
-Port: 32400\r
-Resource-Identifier: 23f2d6867befb9c26f7b5f366d4dd84e9b2294c9\r
-Updated-At: 1466340239\r
-Version: 0.9.16.6.1993-5089475\r
-Parameters: playerAdd=192.168.2.102\r\n""" % settings["title"]
-
-    # convert to bytes
-    response_message = response_message.encode("utf8")
-
-    while gdm_socket.fileno() != -1:
-        logger.debug('GDM: waiting to recieve')
-        data, address = gdm_socket.recvfrom(1024)
-        logger.debug('received %s bytes from %s', len(data), address)
-
-        # discard message if header is not in right format
-        if data == b'M-SEARCH * HTTP/1.1\r\n\r\n':
-            mxpos = data.find(b'MX:')
-            maxdelay = int(data[mxpos+4]) % 5   # Max value of this field is 5
-            time.sleep(random.randrange(0, maxdelay+1, 1))  # wait for random 0-MX time until sending out responses using unicast.
-            logger.info('Sending M Search response to - %s', address)
-            gdm_socket.sendto(response_message, address)
-        else:
-            logger.warn('recieved wrong MSearch')
-
-        time.sleep(5)
-
-
-class Kodi2Plex(http.server.BaseHTTPRequestHandler):
+class Kodi2PlexRequestHandler(http.server.BaseHTTPRequestHandler):
     """
     Main request handler
     """
-    web_path = None
 
     def do_POST(self):
         logger.debug("POST %s", self.path)
@@ -146,8 +84,8 @@ class Kodi2Plex(http.server.BaseHTTPRequestHandler):
             # root
             root = xml.etree.ElementTree.Element("MediaContainer", attrib={})
             root.attrib["allowMediaDeletion"] = "1"
-            root.attrib["friendlyName"] = settings["title"]
-            root.attrib["machineIdentifier"] = "XXXXXXXX"
+            root.attrib["friendlyName"] = self.server.title
+            root.attrib["machineIdentifier"] = "23f2d6867befb9c26f7b5f366d4dd84e9b2294c9"
             root.attrib["myPlex"] = "0"
             root.attrib["myPlexMappingState"] = "unknown"
             root.attrib["myPlexSigninState"] = "none"
@@ -164,8 +102,8 @@ class Kodi2Plex(http.server.BaseHTTPRequestHandler):
             root.attrib["transcoderVideoQualities"] = "0,1,2,3,4,5,6,7,8,9,10,11,12"
             root.attrib["transcoderVideoRemuxOnly"] = "1"
             root.attrib["transcoderVideoResolutions"] = "128,128,160,240,320,480,768,720,720,1080,1080,1080,1080"
-            root.attrib["updatedAt"] = "1423682517"
-            root.attrib["version"] = "0.9.12.0"
+            root.attrib["updatedAt"] = "1466340239"
+            root.attrib["version"] = "0.9.16.6.1993-5089475"
 
             for option in ["library"]:
                 root.append(xml.etree.ElementTree.Element("Directory", attrib={"count": "1", "key": option, "title": option}))
@@ -177,7 +115,7 @@ class Kodi2Plex(http.server.BaseHTTPRequestHandler):
             self.wfile.write(xml.etree.ElementTree.tostring(root))
 
         elif path == '/library/sections':
-            video_playlists = kodi_request("Files.GetDirectory",
+            video_playlists = self.server.kodi_request("Files.GetDirectory",
                                            ["special://videoplaylists/", "video",
                                             ["title", "file", "mimetype", "thumbnail"],
                                             {"method": "label",
@@ -233,8 +171,77 @@ class Kodi2Plex(http.server.BaseHTTPRequestHandler):
             self.wfile.write(b'<MediaContainer size="0" />')
 
 
-class ThreadedHTTPServer(socketserver.ThreadingMixIn, http.server.HTTPServer):
+class Kodi2PlexHTTPServer(socketserver.ThreadingMixIn, http.server.HTTPServer):
     """Handle requests in a separate thread."""
+
+    def __init__(self, server_address):
+        http.server.HTTPServer.__init__(self, server_address, Kodi2PlexRequestHandler)
+        self.title = "Kodi2Plex"
+        self.web_path = None
+        self.kodi_url = None
+
+        self.server_ip = socket.gethostbyname(socket.gethostname())
+
+        self.kodi_jsonrpc_counter = 0
+
+    def kodi_request(self, method, params):
+        """
+        Sends a JSON formatted message to the server
+        returns the result as dictionary (from json response)
+        """
+
+        # create the request
+        payload = {
+            "method": method,
+            "params": params,
+            "jsonrpc": "2.0",
+            "id": self.kodi_jsonrpc_counter,
+        }
+
+        # increase the message counter
+        self.kodi_jsonrpc_counter += 1
+
+        # fire up the request
+        req = urllib.request.Request(self.kodi_url, data=json.dumps(payload).encode("utf8"), headers=kodi_jsonrpc_headers)
+        response = urllib.request.urlopen(req)
+        return json.loads(response.read().decode("utf8"))
+
+    def gdm_broadcast(self, gdm_socket):
+        """
+        Function to send response for GDM requests from
+        Plex clients
+        """
+
+        while gdm_socket.fileno() != -1:
+            logger.debug('GDM: waiting to recieve')
+            data, address = gdm_socket.recvfrom(1024)
+            logger.debug('received %s bytes from %s', len(data), address)
+
+            # discard message if header is not in right format
+            if data == b'M-SEARCH * HTTP/1.1\r\n\r\n':
+                mxpos = data.find(b'MX:')
+                maxdelay = int(data[mxpos+4]) % 5   # Max value of this field is 5
+                time.sleep(random.randrange(0, maxdelay+1, 1))  # wait for random 0-MX time until sending out responses using unicast.
+                logger.info('Sending M Search response to - %s', address)
+
+                # response as string
+                response_message = """HTTP/1.1 200 OK\r
+Content-Type: plex/media-server\r
+Name: %s\r
+Port: 32400\r
+Resource-Identifier: 23f2d6867befb9c26f7b5f366d4dd84e9b2294c9\r
+Updated-At: 1466340239\r
+Version: 0.9.16.6.1993-5089475\r
+Parameters: playerAdd=%s\r\n""" % (kodi2plex_server.title, kodi2plex_server.server_ip)
+
+                logger.debug("GDM send: %s", response_message)
+
+                gdm_socket.sendto(response_message.encode("utf8"), address)
+            else:
+                logger.warn('recieved wrong MSearch')
+
+            time.sleep(5)
+
 
 if __name__ == "__main__":
     logger = logging.getLogger("kodi2plex")
@@ -254,6 +261,9 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
+    # Create the server so we can set it up
+    kodi2plex_server = Kodi2PlexHTTPServer(('0.0.0.0', args.plex_port))
+
     # no host => no go
     if not args.kodi_host:
         logger.error("No kodi host defined")
@@ -265,8 +275,8 @@ if __name__ == "__main__":
         logger.setLevel(logging.DEBUG)
 
     # setup the settings accorsing to the users wishes
-    settings["title"] = args.name
-    settings["kodi_url"] = "http://%s:%d/jsonrpc" % (args.kodi_host, args.kodi_port)
+    kodi2plex_server.title = args.name
+    kodi2plex_server.kodi_url = "http://%s:%d/jsonrpc" % (args.kodi_host, args.kodi_port)
 
     # if there is a web client defined
     if args.plex_web:
@@ -280,9 +290,7 @@ if __name__ == "__main__":
 
         logger.info("Using WebClient from %s", web_path)
 
-        settings["web_path"] = web_path
-
-    server = ThreadedHTTPServer(('0.0.0.0', args.plex_port), Kodi2Plex)
+        kodi2plex_server.web_path = web_path
 
     if args.gdm:
         GDM_ADDR = '239.0.0.250'
@@ -295,13 +303,13 @@ if __name__ == "__main__":
         group = socket.inet_aton(GDM_ADDR)
         mreq = struct.pack('4sL', group, socket.INADDR_ANY)
         sock.setsockopt(socket.IPPROTO_IP, socket.IP_ADD_MEMBERSHIP, mreq)
-        gdm_thread = threading.Thread(target=gdm_broadcast, args=(sock,))
+        gdm_thread = threading.Thread(target=kodi2plex_server.gdm_broadcast, args=(sock,))
         gdm_thread.start()
 
     logger.info('Starting Kodi2Plex, use <Ctrl-C> to stop')
 
     try:
-        server.serve_forever()
+        kodi2plex_server.serve_forever()
     except KeyboardInterrupt:
         logger.info("Shutting down")
 
