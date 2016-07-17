@@ -176,15 +176,19 @@ async def get_library_sections(request):
     result = """<MediaContainer size="%d" allowSync="0" identifier="com.plexapp.plugins.library" mediaTagPrefix="/system/bundle/media/flags/"\
         mediaTagVersion="1420847353" title1="Plex Library">""" % (video_playlists_count + 1)
 
+    # All Movies
     result += """<Directory allowSync="0" art="/:/resources/movie-fanart.jpg" filters="1" refreshing="0" thumb="/:/resources/movie.png"\
         key="0" type="movie" title="All Movies" composite="/library/sections/6/composite/1423495904" agent="com.plexapp.agents.themoviedb"\
-        scanner="Plex Movie Scanner" language="de" uuid="4af6da95-dab8-4dcb-98d8-4f5cd0accc33" updatedAt="1423495904" createdAt="1413134298" />"""
+        scanner="Plex Movie Scanner" updatedAt="1423495904" createdAt="1413134298" />"""
+
+    # All TV Shows
+    result += """<Directory key="1" type="show" title="All TV Shows" />"""
 
     for index, video_playlist in enumerate(video_playlists):
         result += """<Directory allowSync="0" art="/:/resources/movie-fanart.jpg" filters="1" refreshing="0" thumb="/:/resources/movie.png"\
             key="%d" type="movie" title="%s" composite="/library/sections/6/composite/1423495904" agent="com.plexapp.agents.themoviedb"\
-            scanner="Plex Movie Scanner" language="de" uuid="4af6da95-dab8-4dcb-98d8-4f5cd0accc33" updatedAt="1423495904" createdAt="1413134298" />""" \
-            % (index + 1, video_playlist["label"])
+            scanner="Plex Movie Scanner" updatedAt="1423495904" createdAt="1413134298" />""" \
+            % (index + 2, video_playlist["label"])
     result += "</MediaContainer>"
 
     if request.app["debug"]:
@@ -192,6 +196,69 @@ async def get_library_sections(request):
 
     return aiohttp.web.Response(body=result.encode("utf8"))
 
+
+async def get_all_movies(request):
+    root = xml.etree.ElementTree.Element("MediaContainer", attrib={"art": "/:/resources/movie-fanart.jpg",
+                                                                   "thumb": "/:/resources/movie.png",
+                                                                   "viewMode": "65592",
+                                                                   "identifier": "com.plexapp.plugins.library",
+                                                                   "viewGroup": "movie"})
+
+    option = request.match_info["option"]
+    logger.debug("Get all movies with open %s", option)
+
+    if 'all' == option:
+        start_item = int(request.GET["X-Plex-Container-Start"])
+        end_item = start_item + int(request.GET["X-Plex-Container-Size"])
+        logger.debug("Requested all Movies from %d to %d", start_item, end_item)
+
+        all_movies = await kodi_request(request.app, "VideoLibrary.GetMovies",
+                                        {"limits": {"start": start_item,
+                                                    "end": end_item if end_item!=start_item else start_item+1},
+                                         "properties": ["art", "rating", "thumbnail", "playcount", "file"],
+                                         "sort": {"order": "ascending", "method": "label", "ignorearticle": True}})
+
+
+        root.attrib["totalSize"] = str(all_movies["result"]["limits"]["total"])
+
+        if start_item != end_item:
+            for movie in all_movies["result"]["movies"]:
+                logger.debug(movie)
+                root.append(xml.etree.ElementTree.Element("Video",
+                                                          attrib={"id": str(movie["movieid"]),
+                                                                  "type": "movie",
+                                                                  "title": movie['label'],
+                                                                  "thumb": movie['thumbnail']}))
+
+    if request.app["debug"]:
+        logger.debug(xml.etree.ElementTree.tostring(root))
+    return aiohttp.web.Response(body=xml.etree.ElementTree.tostring(root))
+
+
+def get_all_tvshows(request):
+    root = xml.etree.ElementTree.Element("MediaContainer", attrib={})
+    if request.app["debug"]:
+        logger.debug(xml.etree.ElementTree.tostring(root))
+    return aiohttp.web.Response(body=xml.etree.ElementTree.tostring(root))
+
+
+async def get_library_section(request):
+    """
+    Returns the items for a sections
+    """
+
+    section_id = request.match_info['section_id']
+    logger.debug("Request for library section %s", section_id)
+
+    if "0" == section_id:
+        return await get_all_movies(request)
+    elif "1" == section_id:
+        return get_all_tvshows(request)
+
+    root = xml.etree.ElementTree.Element("MediaContainer", attrib={})
+    if request.app["debug"]:
+        logger.debug(xml.etree.ElementTree.tostring(root))
+    return aiohttp.web.Response(body=xml.etree.ElementTree.tostring(root))
 
 async def get_prefs(request):
     root = xml.etree.ElementTree.Element("MediaContainer", attrib={})
@@ -223,6 +290,21 @@ async def get_empty(request):
     if request.app["debug"]:
         logger.debug(xml.etree.ElementTree.tostring(root))
     return aiohttp.web.Response(body=xml.etree.ElementTree.tostring(root))
+
+
+async def get_kodidownload(request):
+    """
+    Downloads a file from KODI
+
+    :returns: returns the file
+    """
+
+    download_info = await kodi_request(request.app, "Files.PrepareDownload", [request.GET["url"]])
+    download_url = request.app["kodi"] + download_info['result']['details']['path']
+
+    kodi_response = await request.app["client_session"].get(download_url)
+    logger.debug("Download URL: %s", download_url)
+    return aiohttp.web.Response(body=await kodi_response.read())
 
 
 async def send_websocket_notification(app):
@@ -316,6 +398,7 @@ if __name__ == "__main__":
 
     # set some settings
     kodi2plex_app["title"] = args.name
+    kodi2plex_app["kodi"] = "http://%s:%d/" % (args.kodi_host, args.kodi_port)
     kodi2plex_app["kodi_url"] = "http://%s:%d/jsonrpc" % (args.kodi_host, args.kodi_port)
     kodi2plex_app["server_ip"] = socket.gethostbyname(socket.gethostname())
     kodi2plex_app["kodi_jsonrpc_counter"] = 0
@@ -339,7 +422,10 @@ if __name__ == "__main__":
 
     kodi2plex_app.router.add_route('GET', '/', get_root)
     kodi2plex_app.router.add_route('GET', '/library/sections', get_library_sections)
+    kodi2plex_app.router.add_route('GET', '/library/sections/{section_id:\d+}/{option}', get_library_section)
     kodi2plex_app.router.add_route('GET', '/:/prefs', get_prefs)
+
+    kodi2plex_app.router.add_route('GET', '/photo/:/transcode', get_kodidownload)
 
     kodi2plex_app['websockets'] = []
     kodi2plex_app.router.add_route('GET', '/:/websockets/{path:.*}', websocket_handler)
