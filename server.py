@@ -228,6 +228,36 @@ def get_empty(request):
     return aiohttp.web.Response(body=xml.etree.ElementTree.tostring(root))
 
 
+@asyncio.coroutine
+def websocket_handler(request):
+    resp = aiohttp.web.WebSocketResponse()
+    ok, protocol = resp.can_start(request)
+    if not ok:
+        with open(WS_FILE, 'rb') as fp:
+            return Response(body=fp.read(), content_type='text/html')
+
+    yield from resp.prepare(request)
+    print('Someone joined.')
+    for ws in request.app['websockets']:
+        ws.send_str('{"_elementType":"NotificationContainer","type":"timeline","size":1,"_children":[{"_elementType":"TimelineEntry","sectionID":1,"itemID":8,"type":1,"title":"Life of Crime","state":5,"mediaState":"analyzing","updatedAt":1467101125}]}')
+    request.app['websockets'].append(resp)
+
+    while True:
+        msg = yield from resp.receive()
+
+        if msg.tp == MsgType.text:
+            for ws in request.app['websockets']:
+                if ws is not resp:
+                    ws.send_str(msg.data)
+        else:
+            break
+
+    request.app['websockets'].remove(resp)
+    print('Someone disconnected.')
+    for ws in request.app['websockets']:
+        ws.send_str('Someone disconnected.')
+    return resp
+
 if __name__ == "__main__":
     # parse the command line arguments
     parser = argparse.ArgumentParser(description='Kodi2Plex')
@@ -293,6 +323,9 @@ if __name__ == "__main__":
     kodi2plex_app.router.add_route('GET', '/', get_root)
     kodi2plex_app.router.add_route('GET', '/library/sections', get_library_sections)
     kodi2plex_app.router.add_route('GET', '/:/prefs', get_prefs)
+
+    kodi2plex_app['websockets'] = []
+    kodi2plex_app.router.add_route('GET', '/:/websockets/{path:.*}', websocket_handler)
 
     # per default we return an empty MediaContainer
     # !!!!! NEEDS TO BE THE LAST ROUTE
