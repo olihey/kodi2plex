@@ -24,8 +24,7 @@ import aiohttp
 import aiohttp.web
 
 
-@asyncio.coroutine
-def kodi_request(app, method, params):
+async def kodi_request(app, method, params):
     """
     Sends a JSON formatted message to the server
     returns the result as dictionary (from json response)
@@ -46,10 +45,10 @@ def kodi_request(app, method, params):
         logger.debug("Sending to %s\nDATA:\n%s", app["kodi_url"], payload)
 
     # fire up the request
-    kodi_response = yield from app["client_session"].post(app["kodi_url"],
+    kodi_response = await app["client_session"].post(app["kodi_url"],
                                                           data=json.dumps(payload).encode("utf8"),
                                                           headers={'content-type': 'application/json'})
-    kodi_json = yield from kodi_response.json()
+    kodi_json = await kodi_response.json()
     if app["debug"]:
         logger.debug("Result:\n%s", kodi_json)
     return kodi_json
@@ -132,8 +131,7 @@ def IndexMiddleware(index='index.html'):
     return middleware_factory
 
 
-@asyncio.coroutine
-def get_root(request):
+async def get_root(request):
     root = xml.etree.ElementTree.Element("MediaContainer", attrib={})
     root.attrib["allowMediaDeletion"] = "1"
     root.attrib["friendlyName"] = "Kodi2Plex"
@@ -163,9 +161,8 @@ def get_root(request):
     return aiohttp.web.Response(body=xml.etree.ElementTree.tostring(root))
 
 
-@asyncio.coroutine
-def get_library_sections(request):
-    video_playlists = yield from kodi_request(request.app, "Files.GetDirectory",
+async def get_library_sections(request):
+    video_playlists = await kodi_request(request.app, "Files.GetDirectory",
                                               ["special://videoplaylists/", "video",
                                                ["title", "file", "mimetype", "thumbnail"],
                                                {"method": "label",
@@ -194,8 +191,7 @@ def get_library_sections(request):
     return aiohttp.web.Response(body=result.encode("utf8"))
 
 
-@asyncio.coroutine
-def get_prefs(request):
+async def get_prefs(request):
     root = xml.etree.ElementTree.Element("MediaContainer", attrib={})
     root.append(xml.etree.ElementTree.Element("Setting",
                                               attrib={"id": "FriendlyName",
@@ -215,8 +211,7 @@ def get_prefs(request):
     return aiohttp.web.Response(body=xml.etree.ElementTree.tostring(root))
 
 
-@asyncio.coroutine
-def get_empty(request):
+async def get_empty(request):
     """
     Simple handler for unknown requests
 
@@ -228,22 +223,21 @@ def get_empty(request):
     return aiohttp.web.Response(body=xml.etree.ElementTree.tostring(root))
 
 
-@asyncio.coroutine
-def websocket_handler(request):
+async def websocket_handler(request):
     resp = aiohttp.web.WebSocketResponse()
     ok, protocol = resp.can_start(request)
     if not ok:
         with open(WS_FILE, 'rb') as fp:
             return Response(body=fp.read(), content_type='text/html')
 
-    yield from resp.prepare(request)
+    await resp.prepare(request)
     print('Someone joined.')
     for ws in request.app['websockets']:
         ws.send_str('{"_elementType":"NotificationContainer","type":"timeline","size":1,"_children":[{"_elementType":"TimelineEntry","sectionID":1,"itemID":8,"type":1,"title":"Life of Crime","state":5,"mediaState":"analyzing","updatedAt":1467101125}]}')
     request.app['websockets'].append(resp)
 
     while True:
-        msg = yield from resp.receive()
+        msg = await resp.receive()
 
         if msg.tp == MsgType.text:
             for ws in request.app['websockets']:
