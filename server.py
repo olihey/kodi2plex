@@ -223,33 +223,54 @@ async def get_empty(request):
     return aiohttp.web.Response(body=xml.etree.ElementTree.tostring(root))
 
 
+async def send_websocket_notification(app):
+    for ws in app['websockets']:
+        ws.send_str("""{
+    "_elementType": "NotificationContainer",
+    "type": "timeline",
+    "size": 1,
+    "_children": [
+        {
+            "_elementType": "TimelineEntry",
+            "sectionID": 1,
+            "itemID": 8,
+            "type": 1,
+            "title": "Life of Crime",
+            "state": 5,
+            "mediaState": "analyzing",
+            "updatedAt": 1467101125
+        }
+    ]
+}""")
+
+
 async def websocket_handler(request):
+    # Create response
     resp = aiohttp.web.WebSocketResponse()
-    ok, protocol = resp.can_start(request)
+
+    # try to uypdate
+    ok, protocol = resp.can_prepare(request)
     if not ok:
-        with open(WS_FILE, 'rb') as fp:
-            return Response(body=fp.read(), content_type='text/html')
+        logger.error("Couldn't upgrade to WebSocket")
+        return None
 
+    # repare
     await resp.prepare(request)
-    print('Someone joined.')
-    for ws in request.app['websockets']:
-        ws.send_str('{"_elementType":"NotificationContainer","type":"timeline","size":1,"_children":[{"_elementType":"TimelineEntry","sectionID":1,"itemID":8,"type":1,"title":"Life of Crime","state":5,"mediaState":"analyzing","updatedAt":1467101125}]}')
+
+    # add to clients
     request.app['websockets'].append(resp)
+    logger.debug("WebSocket connected")
 
-    while True:
-        msg = await resp.receive()
+    # keep the connections
+    async for msg in resp:
+        # just loop for now
+        pass
 
-        if msg.tp == MsgType.text:
-            for ws in request.app['websockets']:
-                if ws is not resp:
-                    ws.send_str(msg.data)
-        else:
-            break
-
+    # we are done => disconnect and remove
     request.app['websockets'].remove(resp)
-    print('Someone disconnected.')
-    for ws in request.app['websockets']:
-        ws.send_str('Someone disconnected.')
+    logger.debug('WebSocket disconnected')
+
+    # return
     return resp
 
 if __name__ == "__main__":
