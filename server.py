@@ -198,10 +198,7 @@ async def get_library_sections(request):
 
 
 async def get_all_movies(request):
-    root = xml.etree.ElementTree.Element("MediaContainer", attrib={"art": "/:/resources/movie-fanart.jpg",
-                                                                   "thumb": "/:/resources/movie.png",
-                                                                   "viewMode": "65592",
-                                                                   "identifier": "com.plexapp.plugins.library",
+    root = xml.etree.ElementTree.Element("MediaContainer", attrib={"identifier": "com.plexapp.plugins.library",
                                                                    "viewGroup": "movie"})
 
     option = request.match_info["option"]
