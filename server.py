@@ -46,8 +46,8 @@ async def kodi_request(app, method, params):
 
     # fire up the request
     kodi_response = await app["client_session"].post(app["kodi_url"],
-                                                          data=json.dumps(payload).encode("utf8"),
-                                                          headers={'content-type': 'application/json'})
+                                                     data=json.dumps(payload).encode("utf8"),
+                                                     headers={'content-type': 'application/json'})
     kodi_json = await kodi_response.json()
     if app["debug"]:
         logger.debug("Result:\n%s", kodi_json)
@@ -164,12 +164,14 @@ async def get_root(request):
 
 
 async def get_library_sections(request):
-    video_playlists = await kodi_request(request.app, "Files.GetDirectory",
-                                              ["special://videoplaylists/", "video",
-                                               ["title", "file", "mimetype", "thumbnail"],
-                                               {"method": "label",
-                                                "order": "ascending",
-                                                "ignorearticle": True}])
+    video_playlists = await kodi_request(request.app,
+                                         "Files.GetDirectory",
+                                         ["special://videoplaylists/",
+                                          "video",
+                                          ["title", "file", "mimetype", "thumbnail"],
+                                          {"method": "label",
+                                           "order": "ascending",
+                                           "ignorearticle": True}])
 
     video_playlists = video_playlists["result"]["files"]
     video_playlists_count = len(video_playlists)
@@ -211,10 +213,9 @@ async def get_all_movies(request):
 
         all_movies = await kodi_request(request.app, "VideoLibrary.GetMovies",
                                         {"limits": {"start": start_item,
-                                                    "end": end_item if end_item!=start_item else start_item+1},
+                                                    "end": end_item if end_item != start_item else start_item + 1},
                                          "properties": ["art", "rating", "thumbnail", "playcount", "file"],
                                          "sort": {"order": "ascending", "method": "label", "ignorearticle": True}})
-
 
         root.attrib["totalSize"] = str(all_movies["result"]["limits"]["total"])
 
