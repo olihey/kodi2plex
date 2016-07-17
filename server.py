@@ -243,10 +243,13 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
+    # create the logegr
     logger = logging.getLogger("kodi2plex")
+    # add a stream handler
     ch = logging.StreamHandler()
     logger.addHandler(ch)
 
+    # set logging.DEBUG if the user has specified -v or -d
     if args.verbose or args.debug:
         logger.setLevel(logging.DEBUG)
         logger.debug(args)
@@ -256,9 +259,15 @@ if __name__ == "__main__":
         logger.error("No kodi host defined")
         sys.exit(-1)
 
+    # the MAIN LOOP we are living in
     main_loop = asyncio.get_event_loop()
-    kodi2plex_app = aiohttp.web.Application(middlewares=[IndexMiddleware()], loop=main_loop, logger=logger)
+    # the aiohttp Application instance (subclass of dict)
+    kodi2plex_app = aiohttp.web.Application(middlewares=[IndexMiddleware()],  # the middleware is required to
+                                                                              # convert */ to */index.html
+                                            loop=main_loop,
+                                            logger=logger)
 
+    # set some settings
     kodi2plex_app["title"] = args.name
     kodi2plex_app["kodi_url"] = "http://%s:%d/jsonrpc" % (args.kodi_host, args.kodi_port)
     kodi2plex_app["server_ip"] = socket.gethostbyname(socket.gethostname())
@@ -266,8 +275,9 @@ if __name__ == "__main__":
     kodi2plex_app["client_session"] = aiohttp.ClientSession()
     kodi2plex_app["debug"] = args.debug
 
+    # Has the user defined a path to the WebClient.bundle from Plex?
     if args.plex_web:
-        # trye using it
+        # try using it
         web_path = os.path.join(os.path.realpath(args.plex_web), "Contents", "Resources")
 
         # Does it exist?
@@ -277,6 +287,7 @@ if __name__ == "__main__":
 
         logger.info("Using WebClient from %s", web_path)
 
+        # add a route to the directory
         kodi2plex_app.router.add_static('/web/', web_path)
 
     kodi2plex_app.router.add_route('GET', '/', get_root)
