@@ -81,7 +81,7 @@ Port: 32400\r
 Resource-Identifier: 23f2d6867befb9c26f7b5f366d4dd84e9b2294c9\r
 Updated-At: 1466340239\r
 Version: 0.9.16.6.1993-5089475\r
-Parameters: playerAdd=%s\r\n""" % (kodi2plex_app["title"], kodi2plex_app["server_ip"])
+\r\n""" % kodi2plex_app["server_ip"]
 
             logger.debug("GDM send: %s", response_message)
 
