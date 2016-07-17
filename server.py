@@ -155,8 +155,10 @@ async def get_root(request):
     root.attrib["updatedAt"] = "1466340239"
     root.attrib["version"] = "0.9.16.6.1993-5089475"
 
-    for option in ["library"]:
-        root.append(xml.etree.ElementTree.Element("Directory", attrib={"count": "1", "key": option, "title": option}))
+    for index, option in enumerate(["butler", "channels", "clients", "hubs", "library", "music", "neighborhood",
+                                    "playQueues", "player", "playlists", "resources", "search", "server", "servers",
+                                    "statistics", "system", "transcode", "updater", "video"]):
+        root.append(xml.etree.ElementTree.Element("Directory", attrib={"count": str(index+1), "key": option, "title": option}))
 
     return aiohttp.web.Response(body=xml.etree.ElementTree.tostring(root))
 
