@@ -15,6 +15,7 @@ import logging
 import asyncio
 import argparse
 import threading
+import collections
 import http.server
 import socketserver
 import urllib.request
@@ -218,7 +219,7 @@ async def get_all_movies(request):
                                         {"limits": {"start": start_item,
                                                     "end": end_item if end_item != start_item else start_item + 1},
                                          "properties": ["art", "rating", "thumbnail", "playcount", "file"],
-                                         "sort": {"order": "ascending", "method": "label", "ignorearticle": True}})
+                                         "sort": {"order": "ascending", "method": "label"}})
 
         root.attrib["totalSize"] = str(all_movies["result"]["limits"]["total"])
 
@@ -230,6 +231,21 @@ async def get_all_movies(request):
                                                                   "title": movie['label'],
                                                                   "thumb": movie['thumbnail'],
                                                                   "key": "/library/metadata/movie/%d" % movie["movieid"]}))
+    elif "firstCharacter" == option:
+        all_movies = await kodi_request(request.app, "VideoLibrary.GetMovies", {})
+
+        character_dict = collections.defaultdict(int)
+        for movie in all_movies["result"]["movies"]:
+            first_character = movie['label'].upper()[0]
+            if first_character.isalpha():
+                character_dict[first_character] += 1
+            else:
+                character_dict['#'] += 1
+
+        for character in sorted(character_dict.keys()):
+            root.append(xml.etree.ElementTree.Element("Directory", attrib={"size": str(character_dict[character]),
+                                                                           "key": character,
+                                                                           "title": character}))
 
     if request.app["debug"]:
         logger.debug(xml.etree.ElementTree.tostring(root))
