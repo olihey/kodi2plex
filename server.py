@@ -15,6 +15,7 @@ import logging
 import asyncio
 import argparse
 import threading
+import traceback
 import collections
 import http.server
 import socketserver
@@ -133,6 +134,134 @@ def IndexMiddleware(index='index.html'):
             return await handler(request)
         return index_handler
     return middleware_factory
+
+
+async def get_video_node(app, movie_id):
+    movie_info = await kodi_request(app,
+                                    "VideoLibrary.GetMovieDetails",
+                                    {"movieid": movie_id,
+                                     "properties": ["title",
+                                                    "genre",
+                                                    "year",
+                                                    "rating",
+                                                    "director",
+                                                    "trailer",
+                                                    "tagline",
+                                                    "plot",
+                                                    "plotoutline",
+                                                    "originaltitle",
+                                                    "lastplayed",
+                                                    "playcount",
+                                                    "writer",
+                                                    "studio",
+                                                    "mpaa",
+                                                    "cast",
+                                                    "country",
+                                                    "imdbnumber",
+                                                    "runtime",
+                                                    "set",
+                                                    "showlink",
+                                                    "streamdetails",
+                                                    "top250",
+                                                    "votes",
+                                                    "fanart",
+                                                    "thumbnail",
+                                                    "file",
+                                                    "sorttitle",
+                                                    "resume",
+                                                    "setid",
+                                                    "dateadded",
+                                                    "tag",
+                                                    "art"]})
+
+    movie_info = movie_info["result"]["moviedetails"]
+    video_node = xml.etree.ElementTree.Element("Video",
+                                               attrib={"type": "movie",
+                                                       "key": "/library/metadata/movie/%d" % movie_id,
+                                                       "title": movie_info['label'],
+                                                       "studio": "" if not movie_info['studio'] else movie_info['studio'][0],
+                                                       "tagline": movie_info['tagline'],
+                                                       "summary": movie_info['plot'],
+                                                       "year": str(movie_info['year']),
+                                                       "rating": str(movie_info["rating"]),
+                                                       "art": movie_info["fanart"],
+                                                       "duration": str(movie_info["runtime"] * 1000),
+                                                       "thumb": movie_info['thumbnail']})
+
+    part_node = None
+    try:
+        video_codec = movie_info["streamdetails"]["video"][0]["codec"]
+        media_node = xml.etree.ElementTree.Element("Media",
+                                                   attrib={"duration": str(movie_info["runtime"] * 1000),
+                                                           "width": str(movie_info["streamdetails"]["video"][0]["width"]),
+                                                           "height": str(movie_info["streamdetails"]["video"][0]["height"]),
+                                                           "aspectRatio": str(movie_info["streamdetails"]["video"][0]["aspect"]),
+                                                           "audioChannels": str(movie_info["streamdetails"]["audio"][0]["channels"]),
+                                                           "container": "mp4",
+                                                           "optimizedForStreaming": "1",
+                                                           "audioCodec": movie_info["streamdetails"]["audio"][0]["codec"],
+                                                           "videoCodec": video_codec_map.get(video_codec, video_codec)})
+        video_node.append(media_node)
+
+        download_info = await kodi_request(app, "Files.PrepareDownload", [movie_info["file"]])
+        download_url = app["kodi"] + download_info['result']['details']['path']
+
+        part_node = xml.etree.ElementTree.Element("Part",
+                                                  attrib={"accessible": "1",
+                                                          "id": str(movie_id),
+                                                          "container": "mp4",
+                                                          "optimizedForStreaming": "1",
+                                                          "key": download_url})
+        media_node.append(part_node)
+    except:
+        logger.error("Error while getting stream details for movie %d, error: %s", movie_id, traceback.format_exc())
+
+    if part_node:
+        stream_counter = 0
+        for video in movie_info["streamdetails"]["video"]:
+            stream_node = xml.etree.ElementTree.Element("Stream", attrib={"streamType": "1",
+                                                                        "default": "1",
+                                                                        "id": str(stream_counter + 1),
+                                                                        "codec": video_codec_map[video["codec"]],
+                                                                        "codecID": video_codec_map[video["codec"]],
+                                                                        "duration": str(video["duration"] * 1000),
+                                                                        "width": str(video["width"]),
+                                                                        "height": str(video["height"]),
+                                                                        "streamIdentifier": str(stream_counter + 1),
+                                                                        "index": str(stream_counter)})
+            part_node.append(stream_node)
+            stream_counter += 1
+
+        for audio in movie_info["streamdetails"]["audio"]:
+            stream_node = xml.etree.ElementTree.Element("Stream", attrib={"streamType": "2",
+                                                                        "default": "1",
+                                                                        "id": str(stream_counter + 1),
+                                                                        "codec": audio["codec"],
+                                                                        "languageCode": audio["language"],
+                                                                        "channels": str(audio["channels"]),
+                                                                        "streamIdentifier": str(stream_counter + 1),
+                                                                        "index": str(stream_counter)})
+            part_node.append(stream_node)
+            stream_counter += 1
+
+    for director in movie_info["director"]:
+        director_node = xml.etree.ElementTree.Element("Director", attrib={"tag": director})
+        video_node.append(director_node)
+    for genre in movie_info["genre"]:
+        genre_node = xml.etree.ElementTree.Element("Genre", attrib={"tag": genre})
+        video_node.append(genre_node)
+    for writer in movie_info["writer"]:
+        writer_node = xml.etree.ElementTree.Element("Writer", attrib={"tag": writer})
+        video_node.append(writer_node)
+    for country in movie_info["country"]:
+        country_node = xml.etree.ElementTree.Element("Country", attrib={"tag": country})
+        video_node.append(country_node)
+    for cast in movie_info["cast"]:
+        cast_node = xml.etree.ElementTree.Element("Role", attrib={"tag": cast["name"],
+                                                                  "role": cast["role"]})
+        video_node.append(cast_node)
+
+    return video_node
 
 
 async def get_root(request):
@@ -289,128 +418,8 @@ async def _get_library_metadata_movie(request, movie_id):
     :returns: an empty MediaContainer
     """
 
-    movie_info = await kodi_request(request.app,
-                                    "VideoLibrary.GetMovieDetails",
-                                    {"movieid": movie_id,
-                                     "properties": ["title",
-                                                    "genre",
-                                                    "year",
-                                                    "rating",
-                                                    "director",
-                                                    "trailer",
-                                                    "tagline",
-                                                    "plot",
-                                                    "plotoutline",
-                                                    "originaltitle",
-                                                    "lastplayed",
-                                                    "playcount",
-                                                    "writer",
-                                                    "studio",
-                                                    "mpaa",
-                                                    "cast",
-                                                    "country",
-                                                    "imdbnumber",
-                                                    "runtime",
-                                                    "set",
-                                                    "showlink",
-                                                    "streamdetails",
-                                                    "top250",
-                                                    "votes",
-                                                    "fanart",
-                                                    "thumbnail",
-                                                    "file",
-                                                    "sorttitle",
-                                                    "resume",
-                                                    "setid",
-                                                    "dateadded",
-                                                    "tag",
-                                                    "art"]})
-
     root = xml.etree.ElementTree.Element("MediaContainer", attrib={})
-
-    movie_info = movie_info["result"]["moviedetails"]
-    video_node = xml.etree.ElementTree.Element("Video",
-                                               attrib={"type": "movie",
-                                                       "key": "/library/metadata/movie/%d" % movie_id,
-                                                       "title": movie_info['label'],
-                                                       "studio": "" if not movie_info['studio'] else movie_info['studio'][0],
-                                                       "tagline": movie_info['tagline'],
-                                                       "summary": movie_info['plot'],
-                                                       "year": str(movie_info['year']),
-                                                       "rating": str(movie_info["rating"]),
-                                                       "art": movie_info["fanart"],
-                                                       "duration": str(movie_info["runtime"] * 1000),
-                                                       "thumb": movie_info['thumbnail']})
-
-    media_node = xml.etree.ElementTree.Element("Media",
-                                               attrib={"duration": str(movie_info["runtime"] * 1000),
-                                                       "width": str(movie_info["streamdetails"]["video"][0]["width"]),
-                                                       "height": str(movie_info["streamdetails"]["video"][0]["height"]),
-                                                       "aspectRatio": str(movie_info["streamdetails"]["video"][0]["aspect"]),
-                                                       "audioChannels": str(movie_info["streamdetails"]["audio"][0]["channels"]),
-                                                       "container": "mp4",
-                                                       "optimizedForStreaming": "1",
-                                                       "audioCodec": movie_info["streamdetails"]["audio"][0]["codec"],
-                                                       "videoCodec": video_codec_map[movie_info["streamdetails"]["video"][0]["codec"]]})
-
-    download_info = await kodi_request(request.app, "Files.PrepareDownload", [movie_info["file"]])
-    download_url = request.app["kodi"] + download_info['result']['details']['path']
-
-    part_node = xml.etree.ElementTree.Element("Part",
-                                              attrib={"accessible": "1",
-                                                      "id": str(movie_id),
-                                                      "container": "mp4",
-                                                      "optimizedForStreaming": "1",
-                                                      "key": download_url})
-
-    stream_counter = 0
-    for video in movie_info["streamdetails"]["video"]:
-        stream_node = xml.etree.ElementTree.Element("Stream", attrib={"streamType": "1",
-                                                                      "default": "1",
-                                                                      "id": str(stream_counter + 1),
-                                                                      "codec": video_codec_map[video["codec"]],
-                                                                      "codecID": video_codec_map[video["codec"]],
-                                                                      "duration": str(video["duration"] * 1000),
-                                                                      "width": str(video["width"]),
-                                                                      "height": str(video["height"]),
-                                                                      "streamIdentifier": str(stream_counter + 1),
-                                                                      "index": str(stream_counter)})
-        part_node.append(stream_node)
-        stream_counter += 1
-
-    for audio in movie_info["streamdetails"]["audio"]:
-        stream_node = xml.etree.ElementTree.Element("Stream", attrib={"streamType": "2",
-                                                                      "default": "1",
-                                                                      "id": str(stream_counter + 1),
-                                                                      "codec": audio["codec"],
-                                                                      "languageCode": audio["language"],
-                                                                      "channels": str(audio["channels"]),
-                                                                      "streamIdentifier": str(stream_counter + 1),
-                                                                      "index": str(stream_counter)})
-        part_node.append(stream_node)
-        stream_counter += 1
-
-    media_node.append(part_node)
-    video_node.append(media_node)
-
-    for director in movie_info["director"]:
-        director_node = xml.etree.ElementTree.Element("Director", attrib={"tag": director})
-        video_node.append(director_node)
-    for genre in movie_info["genre"]:
-        genre_node = xml.etree.ElementTree.Element("Genre", attrib={"tag": genre})
-        video_node.append(genre_node)
-    for writer in movie_info["writer"]:
-        writer_node = xml.etree.ElementTree.Element("Writer", attrib={"tag": writer})
-        video_node.append(writer_node)
-    for country in movie_info["country"]:
-        country_node = xml.etree.ElementTree.Element("Country", attrib={"tag": country})
-        video_node.append(country_node)
-    for cast in movie_info["cast"]:
-        cast_node = xml.etree.ElementTree.Element("Role", attrib={"tag": cast["name"],
-                                                                  "role": cast["role"]})
-        video_node.append(cast_node)
-
-    root.append(video_node)
+    root.append(await get_video_node(request.app, movie_id))
 
     if request.app["debug"]:
         logger.debug(xml.etree.ElementTree.tostring(root))
@@ -439,42 +448,6 @@ async def get_prefs(request):
 
 async def post_playqueues(request):
     movie_id = int(request.GET["uri"].split("%2F")[-1])
-    movie_info = await kodi_request(request.app,
-                                    "VideoLibrary.GetMovieDetails",
-                                    {"movieid": movie_id,
-                                     "properties": ["title",
-                                                    "genre",
-                                                    "year",
-                                                    "rating",
-                                                    "director",
-                                                    "trailer",
-                                                    "tagline",
-                                                    "plot",
-                                                    "plotoutline",
-                                                    "originaltitle",
-                                                    "lastplayed",
-                                                    "playcount",
-                                                    "writer",
-                                                    "studio",
-                                                    "mpaa",
-                                                    "cast",
-                                                    "country",
-                                                    "imdbnumber",
-                                                    "runtime",
-                                                    "set",
-                                                    "showlink",
-                                                    "streamdetails",
-                                                    "top250",
-                                                    "votes",
-                                                    "fanart",
-                                                    "thumbnail",
-                                                    "file",
-                                                    "sorttitle",
-                                                    "resume",
-                                                    "setid",
-                                                    "dateadded",
-                                                    "tag",
-                                                    "art"]})
 
     root = xml.etree.ElementTree.Element("MediaContainer", attrib={"playQueueID": str(request.app["playqueuecounter"] + 1),
                                                                    "playQueueSelectedItemID": str(request.app["playqueuecounter"]),
@@ -482,44 +455,9 @@ async def post_playqueues(request):
                                                                    "playQueueSourceURI": "library://50956afc-8f35-435d-9643-4142a7232186/item/%2Flibrary%2Fmetadata%2F" + str(movie_id),
                                                                    "playQueueSelectedItemOffset": "0"})
 
-    movie_info = movie_info["result"]["moviedetails"]
-    video_node = xml.etree.ElementTree.Element("Video",
-                                               attrib={"type": "movie",
-                                                       "key": "/library/metadata/movie/%d" % movie_id,
-                                                       "title": movie_info['label'],
-                                                       "studio": "" if not movie_info['studio'] else movie_info['studio'][0],
-                                                       "tagline": movie_info['tagline'],
-                                                       "summary": movie_info['plot'],
-                                                       "year": str(movie_info['year']),
-                                                       "rating": str(movie_info["rating"]),
-                                                       "art": movie_info["fanart"],
-                                                       "playQueueItemID": str(request.app["playqueuecounter"]),
-                                                       "duration": str(movie_info["runtime"] * 1000),
-                                                       "thumb": movie_info['thumbnail']})
-
     request.app["playqueuecounter"] += 1
 
-    media_node = xml.etree.ElementTree.Element("Media",
-                                               attrib={"duration": str(movie_info["runtime"] * 1000),
-                                                       "width": str(movie_info["streamdetails"]["video"][0]["width"]),
-                                                       "height": str(movie_info["streamdetails"]["video"][0]["height"]),
-                                                       "aspectRatio": str(movie_info["streamdetails"]["video"][0]["aspect"]),
-                                                       "audioChannels": str(movie_info["streamdetails"]["audio"][0]["channels"]),
-                                                       "container": "mp4",
-                                                       "optimizedForStreaming": "1",
-                                                       "audioCodec": movie_info["streamdetails"]["audio"][0]["codec"],
-                                                       "videoCodec": video_codec_map[movie_info["streamdetails"]["video"][0]["codec"]]})
-
-    part_node = xml.etree.ElementTree.Element("Part",
-                                              attrib={"accessible": "1",
-                                                      "id": str(movie_id),
-                                                      "container": "mp4",
-                                                      "optimizedForStreaming": "1",
-                                                      "key": "/library/parts/%d/file.mp4" % movie_id})
-
-    media_node.append(part_node)
-    video_node.append(media_node)
-    root.append(video_node)
+    root.append(await get_video_node(request.app, movie_id))
 
     if request.app["debug"]:
         logger.debug(xml.etree.ElementTree.tostring(root))
