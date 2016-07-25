@@ -381,8 +381,50 @@ async def get_all_movies(request):
     return aiohttp.web.Response(body=b'<?xml version="1.0" encoding="UTF-8"?>' + xml.etree.ElementTree.tostring(root))
 
 
-def get_all_tvshows(request):
-    root = xml.etree.ElementTree.Element("MediaContainer", attrib={})
+async def get_all_tvshows(request):
+    root = xml.etree.ElementTree.Element("MediaContainer", attrib={"identifier": "com.plexapp.plugins.library",
+                                                                   "viewGroup": "show"})
+
+    option = request.match_info["option"]
+    logger.debug("Get all tv shows with open %s", option)
+
+    if 'all' == option:
+        start_item = int(request.GET["X-Plex-Container-Start"])
+        end_item = start_item + int(request.GET["X-Plex-Container-Size"])
+        logger.debug("Requested all TV shows from %d to %d", start_item, end_item)
+
+        all_tv_shows = await kodi_request(request.app,
+                                          "VideoLibrary.GetTVShows",
+                                          {"limits": {"start": start_item,
+                                                      "end": end_item if end_item != start_item else start_item + 1},
+                                           "properties": ["art", "rating", "thumbnail", "playcount", "file"],
+                                           "sort": {"order": "ascending", "method": "label"}})
+
+        root.attrib["totalSize"] = str(all_tv_shows["result"]["limits"]["total"])
+
+        if start_item != end_item:
+            for tv_show in all_tv_shows["result"]["tvshows"]:
+                root.append(xml.etree.ElementTree.Element("Video",
+                                                          attrib={"type": "show",
+                                                                  "title": tv_show['label'],
+                                                                  "thumb": tv_show['thumbnail'],
+                                                                  "key": "/library/metadata/tvshow/%d/children" % tv_show["tvshowid"]}))
+    elif "firstCharacter" == option:
+        all_movies = await kodi_request(request.app, "VideoLibrary.GetTVShows", {})
+
+        character_dict = collections.defaultdict(int)
+        for movie in all_movies["result"]["tvshows"]:
+            first_character = movie['label'].upper()[0]
+            if first_character.isalpha():
+                character_dict[first_character] += 1
+            else:
+                character_dict['#'] += 1
+
+        for character in sorted(character_dict.keys()):
+            root.append(xml.etree.ElementTree.Element("Directory", attrib={"size": str(character_dict[character]),
+                                                                           "key": character,
+                                                                           "title": character}))
+
     if request.app["debug"]:
         logger.debug(xml.etree.ElementTree.tostring(root))
     return aiohttp.web.Response(body=b'<?xml version="1.0" encoding="UTF-8"?>' + xml.etree.ElementTree.tostring(root))
@@ -399,7 +441,91 @@ async def get_library_section(request):
     if "0" == section_id:
         return await get_all_movies(request)
     elif "1" == section_id:
-        return get_all_tvshows(request)
+        return await get_all_tvshows(request)
+
+    root = xml.etree.ElementTree.Element("MediaContainer", attrib={})
+    if request.app["debug"]:
+        logger.debug(xml.etree.ElementTree.tostring(root))
+    return aiohttp.web.Response(body=b'<?xml version="1.0" encoding="UTF-8"?>' + xml.etree.ElementTree.tostring(root))
+
+
+async def get_library_metadata_tvshow_info(request):
+    tvshow_id = int(request.match_info["tvshow_id"])
+
+    show_info = await kodi_request(request.app, "VideoLibrary.GetTVShowDetails", [tvshow_id, ["title",
+                                                                                                "genre",
+                                                                                                "year",
+                                                                                                "rating",
+                                                                                                "plot",
+                                                                                                "studio",
+                                                                                                "mpaa",
+                                                                                                "cast",
+                                                                                                "playcount",
+                                                                                                "episode",
+                                                                                                "imdbnumber",
+                                                                                                "premiered",
+                                                                                                "votes",
+                                                                                                "lastplayed",
+                                                                                                "fanart",
+                                                                                                "thumbnail", 
+                                                                                                "file",
+                                                                                                "originaltitle",
+                                                                                                "sorttitle",
+                                                                                                "episodeguide",
+                                                                                                "season",
+                                                                                                "watchedepisodes",
+                                                                                                "dateadded",
+                                                                                                "tag",
+                                                                                                "art"]])
+    show_info = show_info["result"]["tvshowdetails"]
+
+    root = xml.etree.ElementTree.Element("MediaContainer", attrib={"identifier": "com.plexapp.plugins.library"})
+
+    video_node = xml.etree.ElementTree.Element("Directory",
+                                               attrib={"type": "show",
+                                                       "key": "/library/metadata/tvshow/%d/children" % tvshow_id,
+                                                       "title": show_info['label'],
+                                                       "studio": "" if not show_info['studio'] else show_info['studio'][0],
+                                                       "summary": show_info['plot'],
+                                                       "year": str(show_info['year']),
+                                                       "rating": str(show_info["rating"]),
+                                                       "art": show_info["fanart"],
+                                                       "thumb": show_info['thumbnail']})
+
+    # < ratingKey="284"  guid="com.plexapp.agents.thetvdb://79168?lang=en" librarySectionID="2" studio="NBC" type="" title="Friends" contentRating="TV-14" summary="Six young people, on their own and struggling to survive in the real world, find the companionship, comfort and support they get from each other to be the perfect antidote to the pressures of life." index="1" rating="9.1" year="1994" thumb="/library/metadata/284/thumb/1468746485" art="/library/metadata/284/art/1468746485" banner="/library/metadata/284/banner/1468746485" theme="/library/metadata/284/theme/1468746485" duration="1500000" originallyAvailableAt="1994-09-22" leafCount="237" viewedLeafCount="0" childCount="11" addedAt="1468739007" updatedAt="1468746485">
+
+    root.append(video_node)
+
+    if request.app["debug"]:
+        logger.debug(xml.etree.ElementTree.tostring(root))
+    return aiohttp.web.Response(body=b'<?xml version="1.0" encoding="UTF-8"?>' + xml.etree.ElementTree.tostring(root))
+
+async def get_library_metadata_tvshow(request):
+    tvshow_id = int(request.match_info["tvshow_id"])
+
+    all_seasons = await kodi_request(request.app, "VideoLibrary.GetSeasons", [tvshow_id, ["season", "playcount", "watchedepisodes", "episode", "thumbnail", "tvshowid"]])
+
+    root = xml.etree.ElementTree.Element("MediaContainer", attrib={"identifier": "com.plexapp.plugins.library",
+                                                                   "viewGroup": "season",
+                                                                   "key": str(tvshow_id)})
+
+    for season in all_seasons["result"]["seasons"]:
+        root.append(xml.etree.ElementTree.Element("Directory", attrib={"leafCount": str(season["episode"]),
+                                                                       "type": "season",
+                                                                       "title": season["label"],
+                                                                       "index": str(season["season"]),
+                                                                       "thumb": season['thumbnail'],
+                                                                       "viewedLeafCount": "0",
+                                                                       "parentRatingKey": str(tvshow_id),
+                                                                       "key": "/library/metadata/tvshow/%d/%d" % (tvshow_id, season['season'])}))
+    if request.app["debug"]:
+        logger.debug(xml.etree.ElementTree.tostring(root))
+    return aiohttp.web.Response(body=b'<?xml version="1.0" encoding="UTF-8"?>' + xml.etree.ElementTree.tostring(root))
+
+
+async def get_library_metadata_tvshow_season(request):
+    tvshow_id = int(request.match_info["tvshow_id"])
+    season = int(request.match_info["season"])
 
     root = xml.etree.ElementTree.Element("MediaContainer", attrib={})
     if request.app["debug"]:
@@ -610,6 +736,9 @@ if __name__ == "__main__":
     kodi2plex_app.router.add_route('GET', '/library/sections', get_library_sections)
     kodi2plex_app.router.add_route('GET', '/library/sections/{section_id:\d+}/{option}', get_library_section)
     kodi2plex_app.router.add_route('GET', '/library/metadata/movie/{movie_id:\d+}', get_library_metadata_movie)
+    kodi2plex_app.router.add_route('GET', '/library/metadata/tvshow/{tvshow_id:\d+}', get_library_metadata_tvshow_info)
+    kodi2plex_app.router.add_route('GET', '/library/metadata/tvshow/{tvshow_id:\d+}/children', get_library_metadata_tvshow)
+    kodi2plex_app.router.add_route('GET', '/library/metadata/tvshow/{tvshow_id:\d+}/{season:\d+}', get_library_metadata_tvshow_season)
     kodi2plex_app.router.add_route('GET', '/:/prefs', get_prefs)
 
     kodi2plex_app.router.add_route('POST', '/playQueues', post_playqueues)
