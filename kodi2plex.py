@@ -409,7 +409,8 @@ async def get_all_tvshows(request):
                                           "VideoLibrary.GetTVShows",
                                           {"limits": {"start": start_item,
                                                       "end": end_item if end_item != start_item else start_item + 1},
-                                           "properties": ["art", "rating", "thumbnail", "playcount", "file"],
+                                           "properties": ["art", "rating", "thumbnail", "playcount", "file", "plot", "watchedepisodes",
+                                                          "episode", "season"],
                                            "sort": {"order": "ascending", "method": "label"}})
 
         root.attrib["totalSize"] = str(all_tv_shows["result"]["limits"]["total"])
@@ -419,7 +420,11 @@ async def get_all_tvshows(request):
                 root.append(xml.etree.ElementTree.Element("Video",
                                                           attrib={"type": "show",
                                                                   "title": tv_show['label'],
+                                                                  "summary": tv_show['plot'],
                                                                   "thumb": tv_show['thumbnail'],
+                                                                  "leafCount": str(tv_show['episode']),
+                                                                  "viewedLeafCount": str(tv_show['watchedepisodes']),
+                                                                  "childCount": str(tv_show['season']),
                                                                   "key": "/library/metadata/tvshow/%d/children" % tv_show["tvshowid"]}))
     elif "firstCharacter" == option:
         all_movies = await kodi_request(request.app, "VideoLibrary.GetTVShows", {})
@@ -509,7 +514,7 @@ async def get_library_metadata_tvshow(request):
                                                                        "title": season["label"],
                                                                        "index": str(season["season"]),
                                                                        "thumb": season['thumbnail'],
-                                                                       "viewedLeafCount": "0",
+                                                                       "viewedLeafCount": str(season["watchedepisodes"]),
                                                                        "parentRatingKey": str(tvshow_id),
                                                                        "key": "/library/metadata/tvshow/%d/%d" % (tvshow_id, season['season'])}))
     if request.app["debug"]:
@@ -545,6 +550,8 @@ async def get_library_metadata_tvshow_season(request):
                                                               "index": str(episode["episode"]),
                                                               "thumb": episode['thumbnail'],
                                                               "summary": episode['plot'],
+                                                              "viewCount": str(episode['playcount']),
+                                                              "viewOffset": str(int(episode["resume"]["position"]*1000)),
                                                               "parentRatingKey": str(tvshow_id),
                                                               "parentKey": "/library/metadata/tvshow/%d/%d" % (tvshow_id, season)}))
     else:
