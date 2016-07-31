@@ -57,7 +57,7 @@ async def kodi_request(app, method, params):
     app["kodi_jsonrpc_counter"] += 1
 
     if app["debug"]:
-        logger.debug("Sending to %s\nDATA:\n%s", app["kodi_url"], payload)
+        logger.debug("Sending to %s\nDATA:\n%s", app["kodi_url"], pprint.pformat(payload))
 
     # fire up the request
     kodi_response = await app["client_session"].post(app["kodi_url"],
