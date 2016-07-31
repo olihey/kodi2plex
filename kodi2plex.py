@@ -939,7 +939,7 @@ if __name__ == "__main__":
         gdm_thread.start()
 
     handler = kodi2plex_app.make_handler(debug=args.debug, access_log=logger if args.debug or args.verbose else None)
-    f = main_loop.create_server(handler, '0.0.0.0', 32400)
+    f = main_loop.create_server(handler, '0.0.0.0', args.plex_port)
     srv = main_loop.run_until_complete(f)
     logger.debug('serving on %s', srv.sockets[0].getsockname())
     try:
