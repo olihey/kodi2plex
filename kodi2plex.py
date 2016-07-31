@@ -21,6 +21,7 @@ import collections
 import http.server
 import socketserver
 import urllib.request
+import xml.dom.minidom
 import xml.etree.ElementTree
 
 import aiohttp
@@ -28,6 +29,14 @@ import aiohttp.web
 
 
 video_codec_map = {"avc1": "h264", "hev1": "hevc", "hevc": "hevc"}
+
+
+def _xml_prettify(elem):
+    """Return a pretty-printed XML string for the Element.
+    """
+    rough_string = xml.etree.ElementTree.tostring(elem)
+    reparsed = xml.dom.minidom.parseString(rough_string)
+    return reparsed.toprettyxml(indent="  ")
 
 
 async def kodi_request(app, method, params):
@@ -423,7 +432,7 @@ async def get_all_movies(request):
                                                                            "title": character}))
 
     if request.app["debug"]:
-        logger.debug(xml.etree.ElementTree.tostring(root))
+        logger.debug(_xml_prettify(root))
     return aiohttp.web.Response(body=b'<?xml version="1.0" encoding="UTF-8"?>' + xml.etree.ElementTree.tostring(root))
 
 
@@ -479,7 +488,7 @@ async def get_all_tvshows(request):
                                                                            "title": character}))
 
     if request.app["debug"]:
-        logger.debug(xml.etree.ElementTree.tostring(root))
+        logger.debug(_xml_prettify(root))
     return aiohttp.web.Response(body=b'<?xml version="1.0" encoding="UTF-8"?>' + xml.etree.ElementTree.tostring(root))
 
 
@@ -498,7 +507,7 @@ async def get_library_section(request):
 
     root = xml.etree.ElementTree.Element("MediaContainer", attrib={})
     if request.app["debug"]:
-        logger.debug(xml.etree.ElementTree.tostring(root))
+        logger.debug(_xml_prettify(root))
     return aiohttp.web.Response(body=b'<?xml version="1.0" encoding="UTF-8"?>' + xml.etree.ElementTree.tostring(root))
 
 
@@ -529,7 +538,7 @@ async def get_library_metadata_tvshow_info(request):
     root.append(video_node)
 
     if request.app["debug"]:
-        logger.debug(xml.etree.ElementTree.tostring(root))
+        logger.debug(_xml_prettify(root))
     return aiohttp.web.Response(body=b'<?xml version="1.0" encoding="UTF-8"?>' + xml.etree.ElementTree.tostring(root))
 
 async def get_library_metadata_tvshow(request):
@@ -554,7 +563,7 @@ async def get_library_metadata_tvshow(request):
                                                                        "parentRatingKey": str(tvshow_id),
                                                                        "key": "/library/metadata/tvshow/%d/%d" % (tvshow_id, season['season'])}))
     if request.app["debug"]:
-        logger.debug(xml.etree.ElementTree.tostring(root))
+        logger.debug(_xml_prettify(root))
     return aiohttp.web.Response(body=b'<?xml version="1.0" encoding="UTF-8"?>' + xml.etree.ElementTree.tostring(root))
 
 
@@ -613,7 +622,7 @@ async def get_library_metadata_tvshow_season(request):
                                                           "key": "/library/metadata/tvshow/%d/%d/children" % (tvshow_id, season)}))
 
     if request.app["debug"]:
-        logger.debug(xml.etree.ElementTree.tostring(root))
+        logger.debug(_xml_prettify(root))
     return aiohttp.web.Response(body=b'<?xml version="1.0" encoding="UTF-8"?>' + xml.etree.ElementTree.tostring(root))
 
 
@@ -625,7 +634,7 @@ async def get_library_metadata_episode(request):
     root.append(await get_episode_node(request.app, episode_id))
 
     if request.app["debug"]:
-        logger.debug(xml.etree.ElementTree.tostring(root))
+        logger.debug(_xml_prettify(root))
     return aiohttp.web.Response(body=b'<?xml version="1.0" encoding="UTF-8"?>' + xml.etree.ElementTree.tostring(root))
 
 
@@ -644,7 +653,7 @@ async def _get_library_metadata_movie(request, movie_id):
     root.append(await get_movie_node(request.app, movie_id))
 
     if request.app["debug"]:
-        logger.debug(xml.etree.ElementTree.tostring(root))
+        logger.debug(_xml_prettify(root))
     return aiohttp.web.Response(body=b'<?xml version="1.0" encoding="UTF-8"?>' + xml.etree.ElementTree.tostring(root))
 
 
@@ -663,7 +672,7 @@ async def get_prefs(request):
                                                       "group": "general"}))
 
     if request.app["debug"]:
-        logger.debug(xml.etree.ElementTree.tostring(root))
+        logger.debug(_xml_prettify(root))
 
     return aiohttp.web.Response(body=b'<?xml version="1.0" encoding="UTF-8"?>' + xml.etree.ElementTree.tostring(root))
 
@@ -691,7 +700,7 @@ async def post_playqueues(request):
         root.append(await get_episode_node(request.app, video_id))
 
     if request.app["debug"]:
-        logger.debug(xml.etree.ElementTree.tostring(root))
+        logger.debug(_xml_prettify(root))
 
     return aiohttp.web.Response(body=b'<?xml version="1.0" encoding="UTF-8"?>' + xml.etree.ElementTree.tostring(root))
 
@@ -704,7 +713,7 @@ async def get_empty(request):
     """
     root = xml.etree.ElementTree.Element("MediaContainer", attrib={})
     if request.app["debug"]:
-        logger.debug(xml.etree.ElementTree.tostring(root))
+        logger.debug(_xml_prettify(root))
     return aiohttp.web.Response(body=b'<?xml version="1.0" encoding="UTF-8"?>' + xml.etree.ElementTree.tostring(root))
 
 
