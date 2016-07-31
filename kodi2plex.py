@@ -299,7 +299,7 @@ async def get_episode_node(app, episode_id):
                                       [episode_id,
                                        ["title",  "plot",  "votes",  "rating",  "writer",  "firstaired",  "playcount",
                                         "runtime", "director", "productioncode", "season", "episode", "originaltitle",
-                                        "showtitle", "cast", "streamdetails", "lastplayed", "fanart", "thumbnail", "file", 
+                                        "showtitle", "cast", "streamdetails", "lastplayed", "fanart", "thumbnail", "file",
                                         "resume", "tvshowid", "dateadded", "uniqueid", "art"]])
     episode_info = episode_info["result"]["episodedetails"]
 
@@ -533,11 +533,14 @@ async def get_library_section(request):
     if 0 == section_id:
         start_item = int(request.GET.get("X-Plex-Container-Start", 0))
         end_item = start_item + int(request.GET.get("X-Plex-Container-Size", 0))
-        return await get_all_movies(request, "movies", kodi_request(request.app, "VideoLibrary.GetMovies",
-                                        {"limits": {"start": start_item,
-                                                    "end": end_item if end_item != start_item else start_item + 1},
-                                         "properties": ["rating", "thumbnail", "playcount", "file", "year"],
-                                         "sort": {"order": sort_direction, "method": sort_type}}))
+        return await get_all_movies(request,
+                                    "movies",
+                                    kodi_request(request.app,
+                                                 "VideoLibrary.GetMovies",
+                                                 {"limits": {"start": start_item,
+                                                             "end": end_item if end_item != start_item else start_item + 1},
+                                                  "properties": ["rating", "thumbnail", "playcount", "file", "year"],
+                                                  "sort": {"order": sort_direction, "method": sort_type}}))
     elif 1 == section_id:
         return await get_all_tvshows(request)
     else:
