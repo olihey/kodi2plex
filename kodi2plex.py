@@ -356,10 +356,9 @@ async def get_library_sections(request):
                                          "Files.GetDirectory",
                                          ["special://videoplaylists/",
                                           "video",
-                                          ["title", "file", "mimetype", "thumbnail"],
+                                          ["file"],
                                           {"method": "label",
-                                           "order": "ascending",
-                                           "ignorearticle": True}])
+                                           "order": "ascending"}])
 
     video_playlists = video_playlists["result"]["files"]
     video_playlists_count = len(video_playlists)
@@ -376,9 +375,8 @@ async def get_library_sections(request):
 
     request.app["playlists"] = video_playlists
     for index, video_playlist in enumerate(video_playlists):
-        result += """<Directory allowSync="0" art="/:/resources/movie-fanart.jpg" filters="1" refreshing="0" thumb="/:/resources/movie.png"\
-            key="%d" type="movie" title="%s" composite="/library/sections/6/composite/1423495904" agent="com.plexapp.agents.themoviedb"\
-            scanner="Plex Movie Scanner" updatedAt="1423495904" createdAt="1413134298" />""" \
+        pprint.pprint(video_playlist)
+        result += """<Directory filters="1" key="%d" type="movie" title="%s" />""" \
             % (index + 2, video_playlist["label"])
     result += "</MediaContainer>"
 
@@ -416,6 +414,7 @@ async def get_all_movies(request, result_field_name, method):
                                                                   "type": "movie",
                                                                   "title": movie['label'],
                                                                   "rating": str(movie['rating']),
+                                                                  "summary": movie['plot'],
                                                                   "year": str(movie['year']),
                                                                   "thumb": movie['thumbnail'],
                                                                   "key": "/library/metadata/movie/%s" % movie_id}))
@@ -539,7 +538,7 @@ async def get_library_section(request):
                                                  "VideoLibrary.GetMovies",
                                                  {"limits": {"start": start_item,
                                                              "end": end_item if end_item != start_item else start_item + 1},
-                                                  "properties": ["rating", "thumbnail", "playcount", "file", "year"],
+                                                  "properties": ["rating", "thumbnail", "playcount", "file", "year", "plot"],
                                                   "sort": {"order": sort_direction, "method": sort_type}}))
     elif 1 == section_id:
         return await get_all_tvshows(request)
@@ -553,7 +552,7 @@ async def get_library_section(request):
                                                  "Files.GetDirectory",
                                                  [playlist["file"],
                                                   "video",
-                                                  ["rating", "thumbnail", "playcount", "file", "year"],
+                                                  ["rating", "thumbnail", "playcount", "file", "year", "plot"],
                                                   {"order": sort_direction, "method": sort_type}]))
 
     root = xml.etree.ElementTree.Element("MediaContainer", attrib={})
