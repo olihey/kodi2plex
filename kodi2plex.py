@@ -441,16 +441,18 @@ async def get_all_tvshows(request):
 
         all_tv_shows = await kodi_request(request.app,
                                           "VideoLibrary.GetTVShows",
-                                          {"limits": {"start": start_item,
-                                                      "end": end_item if end_item != start_item else start_item + 1},
-                                           "properties": ["art", "rating", "thumbnail", "playcount", "file", "plot", "watchedepisodes",
+                                          {"properties": ["art", "rating", "thumbnail", "playcount", "file", "plot", "watchedepisodes",
                                                           "episode", "season"],
                                            "sort": {"order": "ascending", "method": "label"}})
 
-        root.attrib["totalSize"] = str(all_tv_shows["result"]["limits"]["total"])
+        if start_item == 0 and end_item == 0:
+            # workaround for bug in KODI where the result from limits
+            # can't be trusted
+            request.app["kodi_tvshow_total"] = len(all_tv_shows["result"]["tvshows"])
+        root.attrib["totalSize"] = str(request.app["kodi_tvshow_total"])
 
         if start_item != end_item:
-            for tv_show in all_tv_shows["result"]["tvshows"]:
+            for tv_show in all_tv_shows["result"]["tvshows"][start_item:end_item]:
                 root.append(xml.etree.ElementTree.Element("Video",
                                                           attrib={"type": "show",
                                                                   "title": tv_show['label'],
