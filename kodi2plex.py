@@ -372,7 +372,7 @@ async def get_library_sections(request):
         scanner="Plex Movie Scanner" updatedAt="1423495904" createdAt="1413134298" />"""
 
     # All TV Shows
-    result += """<Directory key="1" type="show" title="All TV Shows" />"""
+    result += """<Directory key="1" type="show" title="All TV Shows" filters="1" />"""
 
     for index, video_playlist in enumerate(video_playlists):
         result += """<Directory allowSync="0" art="/:/resources/movie-fanart.jpg" filters="1" refreshing="0" thumb="/:/resources/movie.png"\
@@ -397,13 +397,16 @@ async def get_all_movies(request):
     if 'all' == option:
         start_item = int(request.GET["X-Plex-Container-Start"])
         end_item = start_item + int(request.GET["X-Plex-Container-Size"])
+        sort_type, sort_direction = request.GET.get("sort", "label:asc").split(":")
+        sort_direction = "ascending" if sort_direction == "asc" else "descending"
+
         logger.debug("Requested all Movies from %d to %d", start_item, end_item)
 
         all_movies = await kodi_request(request.app, "VideoLibrary.GetMovies",
                                         {"limits": {"start": start_item,
                                                     "end": end_item if end_item != start_item else start_item + 1},
                                          "properties": ["art", "rating", "thumbnail", "playcount", "file"],
-                                         "sort": {"order": "ascending", "method": "label"}})
+                                         "sort": {"order": sort_direction, "method": sort_type}})
 
         root.attrib["totalSize"] = str(all_movies["result"]["limits"]["total"])
 
@@ -431,6 +434,18 @@ async def get_all_movies(request):
                                                                            "key": character,
                                                                            "title": character}))
 
+    elif "sorts" == option:
+        sort_dict = {"Date Added": "dateadded",
+                     "Date Viewed": "lastplayed",
+                     "Year": "year",
+                     "Name": "label",
+                     "Rating": "rating"}
+        for sort_name, sort_key in sort_dict.items():
+            root.append(xml.etree.ElementTree.Element("Directory", attrib={"defaultDirection": "desc",
+                                                                           "descKey": "%s:desc" % sort_key,
+                                                                           "key": sort_key,
+                                                                           "title": sort_name}))
+
     if request.app["debug"]:
         logger.debug(_xml_prettify(root))
     return aiohttp.web.Response(body=b'<?xml version="1.0" encoding="UTF-8"?>' + xml.etree.ElementTree.tostring(root))
@@ -446,13 +461,16 @@ async def get_all_tvshows(request):
     if 'all' == option:
         start_item = int(request.GET["X-Plex-Container-Start"])
         end_item = start_item + int(request.GET["X-Plex-Container-Size"])
-        logger.debug("Requested all TV shows from %d to %d", start_item, end_item)
+        view_type = int(request.GET.get("type", 2))
+        sort_type, sort_direction = request.GET.get("sort", "label:asc").split(":")
+        sort_direction = "ascending" if sort_direction == "asc" else "descending"
+        logger.debug("Requested all TV shows from %d to %d, sort by %s direction %s", start_item, end_item, sort_type, sort_direction)
 
         all_tv_shows = await kodi_request(request.app,
                                           "VideoLibrary.GetTVShows",
                                           {"properties": ["art", "rating", "thumbnail", "playcount", "file", "plot", "watchedepisodes",
                                                           "episode", "season"],
-                                           "sort": {"order": "ascending", "method": "label"}})
+                                           "sort": {"order": sort_direction, "method": sort_type}})
 
         if start_item == 0 and end_item == 0:
             # workaround for bug in KODI where the result from limits
@@ -486,7 +504,16 @@ async def get_all_tvshows(request):
             root.append(xml.etree.ElementTree.Element("Directory", attrib={"size": str(character_dict[character]),
                                                                            "key": character,
                                                                            "title": character}))
-
+    elif "sorts" == option:
+        sort_dict = {"Date Added": "dateadded",
+                     "Date Viewed": "lastplayed",
+                     "Name": "label",
+                     "Rating": "rating"}
+        for sort_name, sort_key in sort_dict.items():
+            root.append(xml.etree.ElementTree.Element("Directory", attrib={"defaultDirection": "desc",
+                                                                           "descKey": "%s:desc" % sort_key,
+                                                                           "key": sort_key,
+                                                                           "title": sort_name}))
     if request.app["debug"]:
         logger.debug(_xml_prettify(root))
     return aiohttp.web.Response(body=b'<?xml version="1.0" encoding="UTF-8"?>' + xml.etree.ElementTree.tostring(root))
@@ -561,7 +588,8 @@ async def get_library_metadata_tvshow(request):
                                                                        "thumb": season['thumbnail'],
                                                                        "viewedLeafCount": str(season["watchedepisodes"]),
                                                                        "parentRatingKey": str(tvshow_id),
-                                                                       "key": "/library/metadata/tvshow/%d/%d" % (tvshow_id, season['season'])}))
+                                                                       "ratingKey": "tv%ds%d" % (tvshow_id, season['season']),
+                                                                       "key": "/library/metadata/tvshow/%d/%d/children" % (tvshow_id, season['season'])}))
     if request.app["debug"]:
         logger.debug(_xml_prettify(root))
     return aiohttp.web.Response(body=b'<?xml version="1.0" encoding="UTF-8"?>' + xml.etree.ElementTree.tostring(root))
