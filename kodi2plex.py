@@ -374,6 +374,7 @@ async def get_library_sections(request):
     # All TV Shows
     result += """<Directory key="1" type="show" title="All TV Shows" filters="1" />"""
 
+    request.app["playlists"] = video_playlists
     for index, video_playlist in enumerate(video_playlists):
         result += """<Directory allowSync="0" art="/:/resources/movie-fanart.jpg" filters="1" refreshing="0" thumb="/:/resources/movie.png"\
             key="%d" type="movie" title="%s" composite="/library/sections/6/composite/1423495904" agent="com.plexapp.agents.themoviedb"\
@@ -387,7 +388,7 @@ async def get_library_sections(request):
     return aiohttp.web.Response(body=b'<?xml version="1.0" encoding="UTF-8"?>' + result.encode("utf8"))
 
 
-async def get_all_movies(request):
+async def get_all_movies(request, result_field_name, method):
     root = xml.etree.ElementTree.Element("MediaContainer", attrib={"identifier": "com.plexapp.plugins.library",
                                                                    "viewGroup": "movie"})
 
@@ -397,32 +398,32 @@ async def get_all_movies(request):
     if 'all' == option:
         start_item = int(request.GET["X-Plex-Container-Start"])
         end_item = start_item + int(request.GET["X-Plex-Container-Size"])
-        sort_type, sort_direction = request.GET.get("sort", "label:asc").split(":")
-        sort_direction = "ascending" if sort_direction == "asc" else "descending"
 
         logger.debug("Requested all Movies from %d to %d", start_item, end_item)
 
-        all_movies = await kodi_request(request.app, "VideoLibrary.GetMovies",
-                                        {"limits": {"start": start_item,
-                                                    "end": end_item if end_item != start_item else start_item + 1},
-                                         "properties": ["art", "rating", "thumbnail", "playcount", "file"],
-                                         "sort": {"order": sort_direction, "method": sort_type}})
+        all_movies = await method
 
         root.attrib["totalSize"] = str(all_movies["result"]["limits"]["total"])
 
         if start_item != end_item:
-            for movie in all_movies["result"]["movies"]:
+            for movie in all_movies["result"][result_field_name]:
+                if "movieid" in movie:
+                    movie_id = str(movie.get("movieid"))
+                else:
+                    movie_id = str(movie["id"])
                 root.append(xml.etree.ElementTree.Element("Video",
-                                                          attrib={"id": str(movie["movieid"]),
+                                                          attrib={"id": movie_id,
                                                                   "type": "movie",
                                                                   "title": movie['label'],
+                                                                  "rating": str(movie['rating']),
+                                                                  "year": str(movie['year']),
                                                                   "thumb": movie['thumbnail'],
-                                                                  "key": "/library/metadata/movie/%d" % movie["movieid"]}))
+                                                                  "key": "/library/metadata/movie/%s" % movie_id}))
     elif "firstCharacter" == option:
-        all_movies = await kodi_request(request.app, "VideoLibrary.GetMovies", {})
+        all_movies = await method
 
         character_dict = collections.defaultdict(int)
-        for movie in all_movies["result"]["movies"]:
+        for movie in all_movies["result"][result_field_name]:
             first_character = movie['label'].upper()[0]
             if first_character.isalpha():
                 character_dict[first_character] += 1
@@ -524,13 +525,33 @@ async def get_library_section(request):
     Returns the items for a sections
     """
 
-    section_id = request.match_info['section_id']
-    logger.debug("Request for library section %s", section_id)
+    section_id = int(request.match_info['section_id'])
+    sort_type, sort_direction = request.GET.get("sort", "label:asc").split(":")
+    sort_direction = "ascending" if sort_direction == "asc" else "descending"
+    logger.debug("Request for library section %s, sort type %s and direction %s", section_id, sort_type, sort_direction)
 
-    if "0" == section_id:
-        return await get_all_movies(request)
-    elif "1" == section_id:
+    if 0 == section_id:
+        start_item = int(request.GET.get("X-Plex-Container-Start", 0))
+        end_item = start_item + int(request.GET.get("X-Plex-Container-Size", 0))
+        return await get_all_movies(request, "movies", kodi_request(request.app, "VideoLibrary.GetMovies",
+                                        {"limits": {"start": start_item,
+                                                    "end": end_item if end_item != start_item else start_item + 1},
+                                         "properties": ["rating", "thumbnail", "playcount", "file", "year"],
+                                         "sort": {"order": sort_direction, "method": sort_type}}))
+    elif 1 == section_id:
         return await get_all_tvshows(request)
+    else:
+        section_id -= 2
+        playlist = request.app["playlists"][section_id]
+        pprint.pprint(playlist)
+        return await get_all_movies(request,
+                                    "files",
+                                    kodi_request(request.app,
+                                                 "Files.GetDirectory",
+                                                 [playlist["file"],
+                                                  "video",
+                                                  ["rating", "thumbnail", "playcount", "file", "year"],
+                                                  {"order": sort_direction, "method": sort_type}]))
 
     root = xml.etree.ElementTree.Element("MediaContainer", attrib={})
     if request.app["debug"]:
@@ -856,6 +877,7 @@ if __name__ == "__main__":
     kodi2plex_app["server_ip"] = socket.gethostbyname(socket.gethostname())
     kodi2plex_app["kodi_jsonrpc_counter"] = 0
     kodi2plex_app["client_session"] = aiohttp.ClientSession()
+    kodi2plex_app["playlists"] = []
     kodi2plex_app["debug"] = args.debug
     kodi2plex_app["playqueuecounter"] = 0
 
