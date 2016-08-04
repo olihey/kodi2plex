@@ -186,12 +186,13 @@ async def extract_kodi_info(app, video_node, kodi_info, stream_id):
     except:
         logger.error("Error while getting stream details for error: %s", traceback.format_exc())
 
-    if part_node:
-        stream_counter = 0
+    if part_node != None:
+        stream_counter = 1
+
+        default_node = True
         for video in kodi_info["streamdetails"]["video"]:
             stream_node = xml.etree.ElementTree.Element("Stream", attrib={"streamType": "1",
-                                                                          "default": "1",
-                                                                          "id": str(stream_counter + 1),
+                                                                          "id": str(stream_counter),
                                                                           "codec": video_codec_map[video["codec"]],
                                                                           "codecID": video_codec_map[video["codec"]],
                                                                           "duration": str(video["duration"] * 1000),
@@ -199,18 +200,28 @@ async def extract_kodi_info(app, video_node, kodi_info, stream_id):
                                                                           "height": str(video["height"]),
                                                                           "streamIdentifier": str(stream_counter + 1),
                                                                           "index": str(stream_counter)})
+            if default_node:
+                stream_node.attrib["default"] = "1"
+                default_node = False
+
             part_node.append(stream_node)
             stream_counter += 1
 
+        default_node = True
         for audio in kodi_info["streamdetails"]["audio"]:
             stream_node = xml.etree.ElementTree.Element("Stream", attrib={"streamType": "2",
-                                                                          "default": "1",
-                                                                          "id": str(stream_counter + 1),
+                                                                          "id": str(stream_counter),
                                                                           "codec": audio["codec"],
+                                                                          "language": audio["language"],
                                                                           "languageCode": audio["language"],
                                                                           "channels": str(audio["channels"]),
                                                                           "streamIdentifier": str(stream_counter + 1),
                                                                           "index": str(stream_counter)})
+
+            if default_node:
+                stream_node.attrib["default"] = "1"
+                default_node = False
+
             part_node.append(stream_node)
             stream_counter += 1
 
@@ -463,6 +474,11 @@ async def get_all_tvshows(request):
         end_item = start_item + int(request.GET["X-Plex-Container-Size"])
         view_type = int(request.GET.get("type", 2))
         sort_type, sort_direction = request.GET.get("sort", "label:asc").split(":")
+
+        # on Android we sometimes get this sort as default, so we change it
+        if "titleSort" == sort_type:
+            sort_type = "label"
+
         sort_direction = "ascending" if sort_direction == "asc" else "descending"
         logger.debug("Requested all TV shows from %d to %d, sort by %s direction %s", start_item, end_item, sort_type, sort_direction)
 
@@ -476,7 +492,8 @@ async def get_all_tvshows(request):
             # workaround for bug in KODI where the result from limits
             # can't be trusted
             request.app["kodi_tvshow_total"] = len(all_tv_shows["result"]["tvshows"])
-        root.attrib["totalSize"] = str(request.app["kodi_tvshow_total"])
+
+        root.attrib["totalSize"] = str(request.app.get("kodi_tvshow_total", len(all_tv_shows["result"]["tvshows"])))
 
         if start_item != end_item:
             for tv_show in all_tv_shows["result"]["tvshows"][start_item:end_item]:
@@ -527,6 +544,11 @@ async def get_library_section(request):
     section_id = int(request.match_info['section_id'])
     sort_type, sort_direction = request.GET.get("sort", "label:asc").split(":")
     sort_direction = "ascending" if sort_direction == "asc" else "descending"
+
+    # on Android we sometimes get this sort as default, so we change it
+    if "titleSort" == sort_type:
+        sort_type = "label"
+
     logger.debug("Request for library section %s, sort type %s and direction %s", section_id, sort_type, sort_direction)
 
     if 0 == section_id:
@@ -747,7 +769,6 @@ async def post_playqueues(request):
     if "movie" == play_uri[-2]:
         root.append(await get_movie_node(request.app, video_id))
     elif "episode" == play_uri[-2]:
-        pass
         root.append(await get_episode_node(request.app, video_id))
 
     if request.app["debug"]:
@@ -775,7 +796,17 @@ async def get_kodidownload(request):
     :returns: returns the file
     """
 
-    download_info = await kodi_request(request.app, "Files.PrepareDownload", [request.GET["url"]])
+    to_download_url = request.GET["url"]
+
+    # sometimes Plex clients send a http as prefix
+    if to_download_url.startswith("http://"):
+        # FIX IT by removing iter
+        if "image://" in to_download_url:
+            to_download_url = "image://" + to_download_url.split("image://")[1]
+
+    logger.debug("Got request to download '%s'", to_download_url)
+
+    download_info = await kodi_request(request.app, "Files.PrepareDownload", [to_download_url])
     download_url = request.app["kodi"] + download_info['result']['details']['path']
 
     kodi_response = await request.app["client_session"].get(download_url)
